@@ -3,7 +3,7 @@ A GUI driver PowerShell script for installing games in the classic MechWarrior 2
 
 ## Instructions
 
-1. Insert or Mount your MechWarrior 2 / MW2: Ghost Bears / MW2: Mercenaries disc(s)
+1. Insert or Mount your MechWarrior 2 / MW2: Ghost Bear's Legacy / MW2: Mercenaries disc(s)
 1. Double click `msInstaller.bat` and the Wizard will guide you through the setup process.
 1. If you have more than one Disc / Edition available, you will be asked to choose which to install.
 
