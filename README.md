@@ -25,3 +25,6 @@ A GUI driver PowerShell script for installing games in the classic MechWarrior 2
 
 This is based on the script in this [Vogons](https://www.vogons.org/viewtopic.php?p=1349628#p1349628) thread. 
 I cleaned it up, organized it, added the GUI, INI parser, and INI files.
+
+## Love it look?
+Consider buying me a Coffee on [Ko-Fi](https://ko-fi.com/gryarea)
