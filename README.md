@@ -1,5 +1,5 @@
 # MW2 Installer
-A GUI driver PowerShell script for installing games in the classic MechWarrior 2 series
+A GUI driven PowerShell script for installing games in the classic MechWarrior 2 series
 
 ## Instructions
 
