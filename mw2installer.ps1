@@ -1,19 +1,32 @@
 #requires -RunAsAdministrator
-
+[cmdletbinding()]
+param(
+    [switch]$Browser
+)
+Import-Module (Join-Path $PSScriptRoot "installer\Ini.psm1")
 Import-Module (Join-Path $PSScriptRoot "installer\WPF.psm1")
 Import-Module (Join-Path $PSScriptRoot "installer\Wizard.psm1")
-Import-Module (Join-Path $PSScriptRoot "installer\MW2.psm1")
 Import-Module (Join-Path $PSScriptRoot "installer\GUI.psm1")
+Import-Module (Join-Path $PSScriptRoot "installer\MW2.psm1")
 
 $DefaultInstallRoot = "C:\Games"
 $Script:disc = $null;
 
-$themes = Import-IniFile (Join-Path $PSScriptRoot "installer\GUI.ini");
 $ini = Import-IniFile (Join-Path $PSScriptRoot "mw2Installer.ini");
+
+if ($Browser) {
+    Write-Host "Starting Browser"
+    Show-Browser -Data $ini;
+    Cleanup;
+    return;
+}
+
 
 $loadingSplash = Show-Splash -Message "Locating MechWarrior 2 Disc(s)...";
 $Script:discs = @( Find-MW2Disc -Editions $ini.Editions );
-$loadingSplash.Hide();
+$loadingSplash.Close();
+
+#pause;
 
 $Script:disc = if ($Script:discs.Count -gt 1) {
     Show-Selector -Discs $Script:discs;
@@ -31,22 +44,18 @@ if ($null -eq $Script:disc)
 
 $edition = Get-MW2Edition -Disc $Script:disc -IniFile $ini;
 
-$steps = @( Get-MW2InstallSteps -Variables $(Get-MW2InstallVariables -Disc $Script:disc -Root $PSScriptRoot) );
+$steps = Get-MW2InstallSteps -Disc $Script:disc -InstallerPath $PSScriptRoot;
 
 $stepDefinitions = @(
     @{ 'AgreementStep' = @() }
-    @{ 'InstallStep' = $steps }
+    $steps
 )
 
-
 Write-Verbose "Loading Wizard UI";
-$window = New-Wizard -Title "$($edition.title) Installer";
+$theme = Select-Theme -Edition $edition;
 
-switch ($edition.title) {
-    { $_ -like "*Ghost*"  } { $window.DataContext = [pscustomobject]$themes.gblTheme; break }
-    { $_ -like "*Merc*" } { $window.DataContext = [pscustomobject]$themes.mercsTheme; break }
-    default { $window.DataContext = [pscustomobject]$themes.mw2Theme; break }
-}
+$window = New-Wizard -Title "$($edition.title) Installer"; 
+$window.Resources = $theme;
 
 Write-Verbose "Initializing Wizard UI";
 $readme = Get-Content (Join-Path $PSScriptRoot "README.txt") -Raw;
@@ -86,5 +95,7 @@ $window.FindName("NextButton").Add_Click({
 
 Write-Verbose "Show Dialog"
 $window.ShowDialog() | Out-Null;
+
+
 
 CleanUp;

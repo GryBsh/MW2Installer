@@ -1,0 +1,60 @@
+﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        Title="MainWindow" 
+        MinHeight="400" 
+        MinWidth="800" 
+        Height="400"
+        Width="800"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="60"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="40"/>
+        </Grid.RowDefinitions>
+
+        <Rectangle Style="{DynamicResource LeftBackground}" Grid.Column="0" Grid.RowSpan="4" />
+        <Rectangle Style="{DynamicResource RightBackground}" Grid.Column="1" Grid.RowSpan="4" Grid.ColumnSpan="2"/>
+
+
+        <TextBlock Grid.Row="0"
+                   Grid.Column="0"
+                   FontFamily="Steiner" 
+                   FontSize="58" 
+                   TextAlignment="Right"
+                   Style="{DynamicResource LeftTitle}">
+            Mech
+        </TextBlock>
+        <TextBlock Grid.Row="0" 
+                   Grid.Column="1" 
+                   FontFamily="Steiner" 
+                   FontSize="58" 
+                   Grid.ColumnSpan="2"
+                   Style="{DynamicResource RightTitle}">
+            Warrior 2
+        </TextBlock>
+        <ContentControl Grid.Row="1" 
+                        Grid.Column="0" 
+                        VerticalAlignment="Top"
+                        ContentTemplate="{DynamicResource SubtitleTextBlock}"/>
+
+        <Grid Grid.Row="1" Grid.Column="1">
+            <TextBlock x:Name="Text" 
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Margin="10,25">
+
+            </TextBlock>
+        </Grid>
+        <Grid Grid.Row="3" 
+              Grid.Column="2"
+              Style="{DynamicResource BottomBackground}"/>
+    </Grid>
+</Window>

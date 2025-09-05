@@ -1,14 +1,40 @@
 #requires -RunAsAdministrator
+#requires -Modules WPF,GUI,Ini
 
 # 2025/9/1 - Adapted from the original Vogons MW2 installer script by Myne
+
+function Get-DiscAutorunIcon {
+    param (
+        [string]$CDDrive
+    )
+    $autorunInfPath = Join-Path $CDDrive 'autorun.inf';
+    if (Test-Path $autorunInfPath) {
+        $autorunInf = Import-IniFile -Path $autorunInfPath
+        $iconPath = Join-Path $CDDrive $autorunInf.autorun.icon;
+        if (Test-Path $iconPath) {
+            return $iconPath;
+        }
+        return $null;
+    }
+    return $null;
+}
+
+function Get-ExeIcon {
+    param (
+        [string]$ExePath
+    )
+    if (Test-Path $ExePath) {
+        return [System.Drawing.Icon]::ExtractAssociatedIcon($ExePath);
+    }
+    return $null;
+}
 
 function Find-MW2Disc {
     [CmdletBinding()]
     param(
         [hashtable]$Editions
     )
-
-
+    #Add-Type -AssemblyName System.Drawing;;
     $inipaths="product.ini","splash\product.ini"       #location of product.ini on cdrom. Two are known so far.
     #$editionTable = Import-PowerShellDataFile -Path (Join-Path $PSScriptRoot "discs.psd1");
     return @(
@@ -24,14 +50,13 @@ function Find-MW2Disc {
             #this part gets the productid and productname from the product.ini
             #So far, there are two known locations of it which are set above in $inipaths.
             #there are also two spellings of productid and possibly name. Note the "[space] *"
-            foreach ($path in $inipaths) {   
-                if (Test-Path ("$letter\$path")) {
-                    $ProductID=Get-Content "$letter\$path" | Select-String "^Product *ID=" | Select-Object -ExpandProperty Line
-                    $ProductID=($ProductID -split "=" | Select-Object -Skip 1)
-                    $ProductName="$ProductId".trim()
-                    $ProductName=Get-Content "$letter\$path" | Select-String "^Product *name=" | Select-Object -ExpandProperty Line
-                    $ProductName=($ProductName -split "=" | Select-Object -Skip 1)
-                    $ProductName="$ProductName".trim()
+            foreach ($path in $inipaths) {
+                $iniPath = Join-Path $letter $path
+                Write-Verbose "Checking for product.ini at $iniPath"
+                if (Test-Path $iniPath) {
+                    $productIni = Import-IniFile -Path $iniPath
+                    $ProductID = Find-KeyPattern -Pattern "^Product *ID" -InputObject $productIni
+                    $ProductName = Find-KeyPattern -Pattern "^Product *name" -InputObject $productIni
                 }
             } #endforeach
             #this is where we decide which of the following "edition sections" to run. 
@@ -41,14 +66,32 @@ function Find-MW2Disc {
             $discKey = "$cdlabel-$ProductID-$ProductName"
             if ($Editions.ContainsKey($discKey)) {
                 Write-Verbose "Found edition: $($Editions[$discKey]) ($discKey)"
+                $iconPath = Get-DiscAutorunIcon -CDDrive $letter;
+                $icon = if (Test-Path $iconPath) {
+                    $ico = if ($iconPath.EndsWith(".exe")) {
+                        Get-ExeIcon -ExePath $iconPath
+                    } else {
+                        New-Object System.Drawing.Icon $iconPath
+                    }
+                    [System.Windows.Interop.Imaging]::CreateBitmapSourceFromHIcon(
+                        $ico.Handle, 
+                        [System.Windows.Int32Rect]::Empty, 
+                        [System.Windows.Media.Imaging.BitmapSizeOptions]::FromEmptyOptions()
+                    );
+                    
+                } else {
+                    $null
+                }
                 [pscustomobject]@{
                     CDDrive = $letter
                     Edition = $Editions[$discKey]
                     CDLabel = $cdlabel
                     ProductName = $ProductName
-                }
+                    Icon = $icon
+                };
             }
-        } #end foreach
+        }
+         #end foreach
     ); 
 }
 
@@ -72,25 +115,7 @@ function Get-MW2Edition {
     return $edition;
 }
 
-function Get-MW2InstallVariables {
-    [CmdletBinding()]
-    param (
-        [object]$Disc,
-        [string[]]$Root
-    )
 
-    return @{
-        CDDrive = $Disc.CDDrive;
-        commonfiles = "$Root\common";
-        titFixes = "$Root\MW2Tit";
-        _11mw2patch = "$Root\11mw2patch";
-        _11gblpatch = "$Root\11gblpatch";
-        _11merpatch = "$Root\11merpatch";
-        _3dfxpatch = "$Root\3dfxpatch";
-        compatibilitypath = "$Root\compatpatch";
-        subfolders = "GIDDI", "KEATING", "SMK", "MEK", "HELP", "LAUNCH", "SPLASH"
-    }   
-}
 
 function Remove-EmptyAndUnneeded([hashtable]$Edition, [string]$InstallPath) {
     #tidy empty directories
@@ -112,228 +137,224 @@ function Remove-EmptyAndUnneeded([hashtable]$Edition, [string]$InstallPath) {
 function Get-MW2InstallSteps {
     [CmdletBinding()]
     param (
-        [hashtable]$Variables
+        [object]$Disc,
+        [string]$InstallerPath
     )
-    $Script:CDDrive=$Variables.CDDrive
-    $Script:commonfiles=$Variables.commonfiles
-    $Script:titFixes=$Variables.titFixes
-    $Script:11mw2patch=$Variables._11mw2patch
-    $Script:11gblpatch=$Variables._11gblpatch
-    $Script:11merpatch=$Variables._11merpatch
-    $Script:3dfxpatch=$Variables._3dfxpatch
-    $Script:compatibilitypath=$Variables.compatibilitypath
-    $Script:subfolders=$Variables.subfolders
+    $Script:CDDrive=$Disc.CDDrive
+    $Script:commonfiles=(Join-Path $InstallerPath "common")
+    $Script:titFixes=(Join-Path $InstallerPath "MW2Tit")
+    $Script:11mw2patch=(Join-Path $InstallerPath "11mw2patch")
+    $Script:11gblpatch=(Join-Path $InstallerPath "11gblpatch")
+    $Script:11merpatch=(Join-Path $InstallerPath "11merpatch")
+    $Script:3dfxpatch=(Join-Path $InstallerPath "3dfxpatch")
+    $Script:compatibilitypath=(Join-Path $InstallerPath "compatpatch")
+    $Script:subfolders= @("GIDDI", "KEATING", "SMK", "MEK", "HELP", "LAUNCH", "SPLASH");
 
-    #Write-Host ($Variables | ConvertTo-Json)
-    #Write-Host ($Edition | ConvertTo-Json)
-
-    return @(
-        { $Script:InstallPath = $window.FindName("InstallPath").Text }
-
-        {
-            
-            if (!(Test-Path $Script:InstallPath)) {
-                Write-ActionLog $window "Creating install path"
-                New-Item -Path $Script:InstallPath -ItemType Directory -Force | Out-Null
+    return @{
+        InstallStep=@(
+            { $Script:InstallPath = $window.FindName("InstallPath").Text }
+            {
+                
+                if (!(Test-Path $Script:InstallPath)) {
+                    Write-ActionLog $window "Creating install path"
+                    New-Item -Path $Script:InstallPath -ItemType Directory -Force | Out-Null
+                }
+                Write-ActionLog $window "Install path is ready"
             }
-            Write-ActionLog $window "Install path is ready"
-        }
-
-
-        {    
-            #make subfolders in installpath
-            Write-ActionLog $window "Creating subfolders in $Script:InstallPath"
-            foreach ($subs in $Script:subfolders) {
-                try {
-                    New-Item -Path $Script:InstallPath\$subs  -ItemType directory -ErrorAction Stop
-                } 
-                catch [System.IO.IOException] {
-                   
+            {    
+                #make subfolders in installpath
+                Write-ActionLog $window "Creating subfolders in $Script:InstallPath"
+                foreach ($subs in $Script:subfolders) {
+                    try {
+                        New-Item -Path $Script:InstallPath\$subs  -ItemType directory -ErrorAction Stop
+                    } 
+                    catch [System.IO.IOException] {
+                    
+                    }
                 }
             }
-        }
-        {
-            #copyfolders
-            foreach ($folder in $edition.copyfolders) {
-                Write-ActionLog $window "Copying $folder"
-                Copy-Item -Path "$Script:CDDrive\$folder\" -Destination "$Script:InstallPath" -Force -Recurse -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-            #        xcopy /s /y /h "$Script:CDDrive\$folder" "$Script:InstallPath\$folder\"
-            }
-        }
-        {
-            foreach ($folder in $edition.copyotherfolders) {
-                Write-ActionLog $window "Copying $folder"
-                Copy-Item -Path "$Script:CDDrive\$folder\*" -Destination $Script:InstallPath -Force -Recurse -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                #xcopy /s /y /h $folder $Script:InstallPath
-            }
-        }
-        {
-            # copy individual files
-            if (![string]::IsNullOrWhiteSpace($edition.copyfiles)) {
-                Write-ActionLog $window "Copying individual files"
-                foreach ($file in $edition.copyfiles) {
-                    #write-host $file
-                    Copy-Item -Path $Script:CDDrive\$file -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                    #xcopy /y /h $Script:CDDrive\$file $Script:InstallPath
+            {
+                #copyfolders
+                foreach ($folder in $edition.copyfolders) {
+                    Write-ActionLog $window "Copying $folder"
+                    Copy-Item -Path "$Script:CDDrive\$folder\" -Destination "$Script:InstallPath" -Force -Recurse -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                #        xcopy /s /y /h "$Script:CDDrive\$folder" "$Script:InstallPath\$folder\"
                 }
             }
-        }
-            #fix attributes if necessary. GBL 95 may or may not need this but might as well anyway.
-        {   
-            Write-ActionLog $window "Fixing file attributes"
-            Get-ChildItem $Script:InstallPath -Recurse | ForEach-Object {$_.Attributes = 'Normal'}  # <-- This is what you really want to do }
-        }
-        {
-            #copy commonfile
-            if ($edition.copycommonfiles -eq $true) {
-                Write-ActionLog $window "Copying common files"
-                Copy-Item -path "$Script:commonfiles\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-            #    xcopy /y $Script:commonfiles $Script:InstallPath
-            }
-        }
-        {
-            #copy titaniumfixes
-            if ($edition.copytitfixes -eq $true) {
-                Write-ActionLog $window "Copying titanium fixes"
-                Copy-Item -path "$Script:titFixes\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                #xcopy /y $Script:titFixes $Script:InstallPath
-            }
-        }
-        {
-            #copy 1.1 mw2 patch
-            if ($edition.copy11mw2patch -eq $true) {
-                Write-ActionLog $window "Copying 1.1 MW2 patch"
-                Copy-Item -Path "$Script:11mw2patch\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                #Xcopy /y $Script:11mw2patch $Script:InstallPath
-            }
-        }
-        {
-            #copy 1.1 gbl patch
-            if ($edition.copy11gblpatch -eq $true) {
-                Write-ActionLog $window "Copying 1.1 GBL patch"
-                Copy-Item -Path "$Script:11gblpatch\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                #Xcopy /y $11gblpatch $Script:InstallPath
-            }
-        }
-        {
-            #copy 1.1 mer patch
-            if ($edition.copy11merpatch -eq $true) {
-                Write-ActionLog $window "Copying 1.1 mercs patch"
-                Copy-Item -Path "$Script:11merpatch\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                #Xcopy /y $11merpatch $Script:InstallPath
-            }
-        }
-        {
-            #copy 3dfx patch
-            if ($edition.copy3dfxpatch -eq $true) {
-                Write-ActionLog $window "Copying 3dfx patch"
-                Copy-Item -Path "$Script:3dfxpatch\*.*" -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
-                #Xcopy /y $Script:3dfxpatch $Script:InstallPath
-            }
-        }
-        {
-                #copy the ex_, rename to exe and remove readonly (cds are readonly). xcopy doesn't work because it's renaming it too
-            if (![string]::IsNullOrWhiteSpace($edition.cdexe)) {
-                Write-ActionLog $window "Copying $Script:CDDrive\$($edition.cdexe) to $Script:InstallPath\$($edition.renameexename)"
-                Copy-Item "$Script:CDDrive\$($edition.cdexe)" "$Script:InstallPath\$($edition.renameexename)" -PassThru | Set-ItemProperty -Name IsReadOnly -Value $false
-            }
-        }
-        {
-            If ($edition.movehelp -eq $true) {
-                Write-ActionLog $window "Moving help files to $helppath"
-                $helppath=$Script:InstallPath + "\Help"
-                Move-Item $Script:InstallPath\*.hlp $helppath -Force
-                Move-Item $Script:InstallPath\*.cnt $helppath -Force
-                Move-Item $Script:InstallPath\help.exe $helppath -Force
-            }
-        }
-        {
-            #rename exe
-            if ($edition.origexe -ne $($edition.renameexename)) {
-                Write-ActionLog $window "Renaming $($edition.origexe) to $($edition.renameexename)"
-                if (Test-Path ("$Script:InstallPath\$($edition.renameexename)")) {
-                    Remove-Item $Script:InstallPath\$($edition.renameexename)
+            {
+                foreach ($folder in $edition.copyotherfolders) {
+                    Write-ActionLog $window "Copying $folder"
+                    Copy-Item -Path "$Script:CDDrive\$folder\*" -Destination $Script:InstallPath -Force -Recurse -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                    #xcopy /s /y /h $folder $Script:InstallPath
                 }
-                Rename-Item $Script:InstallPath\$($edition.origexe) $($edition.renameexename)
             }
+            {
+                # copy individual files
+                if (![string]::IsNullOrWhiteSpace($edition.copyfiles)) {
+                    Write-ActionLog $window "Copying individual files"
+                    foreach ($file in $edition.copyfiles) {
+                        #write-host $file
+                        Copy-Item -Path $Script:CDDrive\$file -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                        #xcopy /y /h $Script:CDDrive\$file $Script:InstallPath
+                    }
+                }
+            }
+                #fix attributes if necessary. GBL 95 may or may not need this but might as well anyway.
+            {   
+                Write-ActionLog $window "Fixing file attributes"
+                Get-ChildItem $Script:InstallPath -Recurse | ForEach-Object {$_.Attributes = 'Normal'}  # <-- This is what you really want to do }
+            }
+            {
+                #copy commonfile
+                if ($edition.copycommonfiles -eq $true) {
+                    Write-ActionLog $window "Copying common files"
+                    Copy-Item -path "$Script:commonfiles\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                #    xcopy /y $Script:commonfiles $Script:InstallPath
+                }
+            }
+            {
+                #copy titaniumfixes
+                if ($edition.copytitfixes -eq $true) {
+                    Write-ActionLog $window "Copying titanium fixes"
+                    Copy-Item -path "$Script:titFixes\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                    #xcopy /y $Script:titFixes $Script:InstallPath
+                }
+            }
+            {
+                #copy 1.1 mw2 patch
+                if ($edition.copy11mw2patch -eq $true) {
+                    Write-ActionLog $window "Copying 1.1 MW2 patch"
+                    Copy-Item -Path "$Script:11mw2patch\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                    #Xcopy /y $Script:11mw2patch $Script:InstallPath
+                }
+            }
+            {
+                #copy 1.1 gbl patch
+                if ($edition.copy11gblpatch -eq $true) {
+                    Write-ActionLog $window "Copying 1.1 GBL patch"
+                    Copy-Item -Path "$Script:11gblpatch\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                    #Xcopy /y $11gblpatch $Script:InstallPath
+                }
+            }
+            {
+                #copy 1.1 mer patch
+                if ($edition.copy11merpatch -eq $true) {
+                    Write-ActionLog $window "Copying 1.1 mercs patch"
+                    Copy-Item -Path "$Script:11merpatch\*.*"  -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                    #Xcopy /y $11merpatch $Script:InstallPath
+                }
+            }
+            {
+                #copy 3dfx patch
+                if ($edition.copy3dfxpatch -eq $true) {
+                    Write-ActionLog $window "Copying 3dfx patch"
+                    Copy-Item -Path "$Script:3dfxpatch\*.*" -Destination $Script:InstallPath -force -PassThru | ForEach-Object { Write-ActionLog $window $_.Fullname }
+                    #Xcopy /y $Script:3dfxpatch $Script:InstallPath
+                }
+            }
+            {
+                    #copy the ex_, rename to exe and remove readonly (cds are readonly). xcopy doesn't work because it's renaming it too
+                if (![string]::IsNullOrWhiteSpace($edition.cdexe)) {
+                    Write-ActionLog $window "Copying $Script:CDDrive\$($edition.cdexe) to $Script:InstallPath\$($edition.renameexename)"
+                    Copy-Item "$Script:CDDrive\$($edition.cdexe)" "$Script:InstallPath\$($edition.renameexename)" -PassThru | Set-ItemProperty -Name IsReadOnly -Value $false
+                }
+            }
+            {
+                If ($edition.movehelp -eq $true) {
+                    Write-ActionLog $window "Moving help files to $helppath"
+                    $helppath=$Script:InstallPath + "\Help"
+                    Move-Item $Script:InstallPath\*.hlp $helppath -Force
+                    Move-Item $Script:InstallPath\*.cnt $helppath -Force
+                    Move-Item $Script:InstallPath\help.exe $helppath -Force
+                }
+            }
+            {
+                #rename exe
+                if ($edition.origexe -ne $($edition.renameexename)) {
+                    Write-ActionLog $window "Renaming $($edition.origexe) to $($edition.renameexename)"
+                    if (Test-Path ("$Script:InstallPath\$($edition.renameexename)")) {
+                        Remove-Item $Script:InstallPath\$($edition.renameexename)
+                    }
+                    Rename-Item $Script:InstallPath\$($edition.origexe) $($edition.renameexename)
+                }
 
-        }
-        {
-            if ($copydirectplay -eq $true) {
-                Write-ActionLog $window "Copying DirectPlay DLL"
-                Copy-Item -Path "$Script:CDDrive\directx\dplay.dll"  -Destination $Script:InstallPath -Force
-                #xcopy /y "$Script:CDDrive\directx\dplay.dll" $Script:InstallPath
             }
-        }
-        {
-            if (![string]::IsNullOrWhiteSpace($edition.compatpatch)) {
-                Write-ActionLog $window "Executing compatibility patch"
-                Copy-Item "$Script:compatibilitypath\$($edition.compatpatch)" "$Script:InstallPath\" -Force
-                sdbinst.exe -q $Script:InstallPath\$($edition.compatpatch)
+            {
+                if ($copydirectplay -eq $true) {
+                    Write-ActionLog $window "Copying DirectPlay DLL"
+                    Copy-Item -Path "$Script:CDDrive\directx\dplay.dll"  -Destination $Script:InstallPath -Force
+                    #xcopy /y "$Script:CDDrive\directx\dplay.dll" $Script:InstallPath
+                }
             }
-        }
-        {
-            #Edit the dxwnd ini file to the path the user chose and version
-            Write-ActionLog $window "Editing ini file"
-            $inifile=$Script:InstallPath+"\dxwnd.ini"
-            
-            #exe full path and name
-            $repline="Path0=$Script:InstallPath"+"\"+"$($edition.renameexename)"
-            $line = Get-Content $inifile | Select-String "^path0" | Select-Object -ExpandProperty Line
-            (Get-Content $inifile) -replace "^$line", "$repline" | Set-Content $inifile
-            
-            #Name of edition
-            $repline="title0=$($edition.title)"
-            $line = Get-Content $inifile | Select-String "^title0" | Select-Object -ExpandProperty Line
-            (Get-Content $inifile) -replace "$line", "$repline" | Set-Content $inifile
-            
-            #icon in dxwnd
-            $repline="icon0=$($edition.dxwicon)"
-            $line = Get-Content $inifile | Select-String "^icon0" | Select-Object -ExpandProperty Line
-            (Get-Content $inifile) -replace "^$line", "$repline" | Set-Content $inifile
-        }
-        {
-            #create desktop shortcut
-            Write-ActionLog $window "Creating desktop shortcut"
-            $WshShell = New-Object -comObject WScript.Shell
-            $Shortcut = $WshShell.CreateShortcut("$Home\Desktop\" + $edition.title +".lnk")
-            $Shortcut.TargetPath = ("$Script:InstallPath"+"\dxwnd.exe")
-            $Shortcut.Arguments= "/Q /R:1"
-            $Shortcut.IconLocation = $Script:InstallPath+"\"+$edition.shortcuticon
-            $Shortcut.WorkingDirectory=$Script:InstallPath
-            $Shortcut.Save()
-        }
-        {
-            Write-ActionLog $window "Creating launch script"
-            'Start-Process -FilePath "$PSScriptRoot\dxwnd.exe" -ArgumentList  "/Q","/R:1"' | Out-File "$Script:InstallPath/launch-mw2.ps1" -Force;
-            
-        }
-        {
-            Write-ActionLog $window "Creating uninstall script"
-            "Remove-Item `"$Script:InstallPath`" -Recurse -Force -ErrorAction SilentlyContinue;`n" + `
-            "Remove-Item `"`$Home\Desktop\$($edition.title).lnk`" -Force;`n" +
-            "Remove-Item `"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)`" -Recurse -Force -ErrorAction SilentlyContinue" | Out-File "$Script:InstallPath/uninstall-mw2.ps1" -Force;
+            {
+                if (![string]::IsNullOrWhiteSpace($edition.compatpatch)) {
+                    Write-ActionLog $window "Executing compatibility patch"
+                    Copy-Item "$Script:compatibilitypath\$($edition.compatpatch)" "$Script:InstallPath\" -Force
+                    sdbinst.exe -q $Script:InstallPath\$($edition.compatpatch)
+                }
+            }
+            {
+                #Edit the dxwnd ini file to the path the user chose and version
+                Write-ActionLog $window "Editing ini file"
+                $inifile=$Script:InstallPath+"\dxwnd.ini"
+                
+                #exe full path and name
+                $repline="Path0=$Script:InstallPath"+"\"+"$($edition.renameexename)"
+                $line = Get-Content $inifile | Select-String "^path0" | Select-Object -ExpandProperty Line
+                (Get-Content $inifile) -replace "^$line", "$repline" | Set-Content $inifile
+                
+                #Name of edition
+                $repline="title0=$($edition.title)"
+                $line = Get-Content $inifile | Select-String "^title0" | Select-Object -ExpandProperty Line
+                (Get-Content $inifile) -replace "$line", "$repline" | Set-Content $inifile
+                
+                #icon in dxwnd
+                $repline="icon0=$($edition.dxwicon)"
+                $line = Get-Content $inifile | Select-String "^icon0" | Select-Object -ExpandProperty Line
+                (Get-Content $inifile) -replace "^$line", "$repline" | Set-Content $inifile
+            }
+            {
+                #create desktop shortcut
+                Write-ActionLog $window "Creating desktop shortcut"
+                $WshShell = New-Object -comObject WScript.Shell
+                $Shortcut = $WshShell.CreateShortcut("$Home\Desktop\" + $edition.title +".lnk")
+                $Shortcut.TargetPath = ("$Script:InstallPath"+"\dxwnd.exe")
+                $Shortcut.Arguments= "/Q /R:1"
+                $Shortcut.IconLocation = $Script:InstallPath+"\"+$edition.shortcuticon
+                $Shortcut.WorkingDirectory=$Script:InstallPath
+                $Shortcut.Save()
+            }
+            {
+                Write-ActionLog $window "Creating launch script"
+                'Start-Process -FilePath "$PSScriptRoot\dxwnd.exe" -ArgumentList  "/Q","/R:1"' | Out-File "$Script:InstallPath/launch-mw2.ps1" -Force;
+                
+            }
+            {
+                Write-ActionLog $window "Creating uninstall script"
+                "Remove-Item `"$Script:InstallPath`" -Recurse -Force -ErrorAction SilentlyContinue;`n" + `
+                "Remove-Item `"`$Home\Desktop\$($edition.title).lnk`" -Force;`n" +
+                "Remove-Item `"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)`" -Recurse -Force -ErrorAction SilentlyContinue" | Out-File "$Script:InstallPath/uninstall-mw2.ps1" -Force;
 
-            if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)") {
-                Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Recurse -Force -ErrorAction SilentlyContinue
+                if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)") {
+                    Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Recurse -Force -ErrorAction SilentlyContinue
+                }
             }
-        }
-        {
-            Write-ActionLog $window "Creating uninstaller registry entries"
-            $pwsh = if ($Host.Version -ge [version]"6.0") { "pwsh" } else { "powershell" };
-            New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Force | Out-Null
-            New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "DisplayName" -Value "$($edition.title)" -Force | Out-Null
-            New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "UninstallString" -Value "$pwsh `"$Script:InstallPath\uninstall-mw2.ps1`"" -Force | Out-Null
-            New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "Publisher" -Value "Vogons" -Force | Out-Null
-            New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "Version" -Value "1.0" -Force | Out-Null
-            New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "InstallLocation" -Value $Script:InstallPath -Force | Out-Null
-            New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "DisplayIcon" -Value "$Script:InstallPath\$($edition.shortcuticon)" -Force | Out-Null
-
-        }
-        {
-            Remove-EmptyAndUnneeded -Edition $Edition -InstallPath $Script:InstallPath;
-        }
-    );
+            {
+                Write-ActionLog $window "Creating uninstaller registry entries"
+                $pwsh = if ($Host.Version -ge [version]"6.0") { "pwsh" } else { "powershell" };
+                New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Force | Out-Null
+                New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "DisplayName" -Value "$($edition.title)" -Force | Out-Null
+                New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "UninstallString" -Value "$pwsh `"$Script:InstallPath\uninstall-mw2.ps1`"" -Force | Out-Null
+                New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "Publisher" -Value "Vogons" -Force | Out-Null
+                New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "Version" -Value "1.0" -Force | Out-Null
+                New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "InstallLocation" -Value $Script:InstallPath -Force | Out-Null
+                New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($edition.id)" -Name "DisplayIcon" -Value "$Script:InstallPath\$($edition.shortcuticon)" -Force | Out-Null
+            }
+            {
+                Remove-EmptyAndUnneeded -Edition $Edition -InstallPath $Script:InstallPath;
+            }
+        )
+    };
 }
 
 

@@ -26,5 +26,15 @@ A GUI driven PowerShell script for installing games in the classic MechWarrior 2
 This is based on the script in this [Vogons](https://www.vogons.org/viewtopic.php?p=1349628#p1349628) thread. 
 I cleaned it up, organized it, added the GUI, INI parser, and INI files.
 
-## Love the look?
-Consider buying me a Coffee on [Ko-Fi](https://ko-fi.com/gryarea)
+## Credits
+
+DxWnd: https://sourceforge.net/projects/dxwnd/
+dgVoodoo2: http://dege.freeweb.hu/dgVoodoo2/dgVoodoo2/
+TitanFarPatcher: http://www.mech2.org/forum/viewtopic.php?f=17&t=124
+BEEN_Nath_58: https://www.vogons.org/memberlist.php?mode=viewprofile&u=43354
+Slug's patch: https://www.warp13.co.uk/mech2
+ghotik: https://sourceforge.net/u/ghotik/profile/
+nervoushammer: https://sourceforge.net/u/nervoushammer/profile/
+cracyc: https://sourceforge.net/u/cracyc/profile/
+myne: (https://www.vogons.org/memberlist.php?mode=viewprofile&u=49284)
+GryBsh: (https://ko-fi.com/gryarea)
